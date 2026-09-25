@@ -1,0 +1,1651 @@
+ 
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Vic3d</title>
+    <style>
+        body { 
+            background: #151515; color: #eee; font-family: sans-serif; 
+            padding: 10px; margin: 0; font-size: 13px;
+        }
+        
+        .app-layout { display: flex; flex-direction: column; gap: 15px; }
+        
+        .panel { background: #222; padding: 15px; border-radius: 8px; margin-bottom: 15px; border: 1px solid #333; box-shadow: 0 4px 6px rgba(0,0,0,0.3); }
+        
+        /* Strict 1:1 Aspect Ratio Viewport */
+        #preview-container {
+            width: 100%; 
+            aspect-ratio: 1 / 1 !important; 
+            background-color: #0a0a0a; border: 1px dashed #555;
+            border-radius: 4px; overflow: hidden;
+            position: relative;
+        }
+        
+        canvas { display: block; width: 100% !important; height: 100% !important; outline: none; }
+        
+        /* Mobile Layout: Sticky Viewport Top */
+        @media (max-width: 799px) {
+            .right-column { display: contents; }
+            .viewport-section {
+                order: 1;
+                position: sticky;
+                top: 0;
+                z-index: 100;
+                background: #151515;
+                padding: 10px 0;
+                margin: -10px 0 0 0;
+                border-bottom: 2px solid #333;
+            }
+            .settings-section { order: 2; }
+            .results-section { order: 3; }
+        }
+        
+        /* Desktop Layout: Left Settings, Right Viewport */
+        @media (min-width: 800px) {
+            body { height: 100vh; overflow: hidden; padding: 15px; box-sizing: border-box; }
+            .app-layout { flex-direction: row; height: 100%; max-width: 1400px; margin: 0 auto; }
+            .settings-section { flex: 0 0 400px; overflow-y: auto; padding-right: 15px; height: 100%; }
+            .right-column { flex: 1; display: flex; flex-direction: column; overflow-y: auto; height: 100%; padding-left: 15px;}
+            .viewport-section { display: flex; justify-content: center; margin-bottom: 15px; }
+            #preview-container { max-width: 600px; }
+        }
+
+        h3 { margin-top: 0; color: #4CAF50; font-size: 14px; border-bottom: 1px solid #333; padding-bottom: 5px; }
+        
+        .control-group { margin-bottom: 8px; display: flex; align-items: center; justify-content: space-between; }
+        .control-group label { flex: 1; font-weight: bold; color: #ccc; font-size: 12px; }
+        .slider-wrap { display: flex; align-items: center; flex: 2; }
+        .slider-wrap button { 
+            width: 24px; height: 24px; padding: 0; margin: 0 5px; 
+            border: none; background: #444; color: white; border-radius: 4px; 
+            cursor: pointer; font-weight: bold;
+        }
+        .slider-wrap button:active { background: #666; transform: scale(0.95); }
+        .slider-wrap input[type="range"] { flex: 1; margin: 0; }
+        .control-group span { width: 45px; text-align: right; font-family: monospace; color: #4CAF50; font-size: 11px;}
+        .control-group select, .control-group input[type="number"], .control-group input[type="color"], .custom-num-input { flex: 2; padding: 4px; background: #111; color: #fff; border: 1px solid #444; border-radius: 4px; }
+        
+        .custom-num-input { width: 55px; margin-left: 5px; text-align: right; color: #4CAF50; font-family: monospace; font-size: 11px; flex: none; }
+
+        input[type="file"] { width: 100%; margin-bottom: 8px; background: #111; color: #fff; padding: 5px; border-radius:4px; border: 1px solid #444; font-size: 11px;}
+        button.action-btn { 
+            background: #4CAF50; color: white; font-weight: bold; 
+            padding: 12px; border: none; border-radius: 4px; 
+            width: 100%; cursor: pointer; margin-top: 5px; transition: 0.2s;
+        }
+        button.action-btn:active { background: #45a049; transform: scale(0.98); }
+        button:disabled { background: #444 !important; color: #777 !important; cursor: not-allowed; transform: none; }
+        .btn-secondary { background: #e67e22; margin-bottom: 15px; }
+        
+        #status-log {
+            background: #000; color: #0f0; padding: 10px;
+            font-family: monospace; border-radius: 4px; border: 1px solid #333;
+            margin-bottom: 15px; font-size: 11px; max-height: 80px; overflow-y: auto;
+        }
+        
+        #result-container { overflow-x: auto; display: none; }
+        #resultImage { max-height: 256px; image-rendering: pixelated; background: #222; border: 1px solid #444; margin-bottom: 10px;}
+        
+        .export-row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+        .export-row button { flex: 1; padding: 10px; font-weight: bold; border: none; border-radius: 4px; color: white; cursor: pointer; }
+        .export-row button:active { transform: scale(0.95); }
+
+        .hidden { display: none !important; }
+        .flex-row { display: flex; gap: 10px; margin-bottom: 10px; align-items: center; }
+        .flex-row label { margin-left: 5px; cursor: pointer; color: #ccc; font-size: 12px;}
+        
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-track { background: #111; }
+        ::-webkit-scrollbar-thumb { background: #444; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #555; }
+    </style>
+    <script src="https://cdn.jsdelivr.net/npm/gif.js/dist/gif.js"></script>
+</head>
+<body>
+    <div class="app-layout">
+        
+        <!-- SETTINGS COLUMN -->
+        <div class="settings-section">
+            <h2>Vic3d</h2>
+            <div id="status-log">Initializing graphics & fetching workers...</div>
+            
+            <div class="panel">
+                <label style="color:#fff; font-weight:bold; font-size: 12px;">1. Model & Textures / 2. Palette</label>
+                <p style="font-size: 10px; color: #999; margin: 2px 0 8px 0;">*Supports .glb, .gltf (+ textures/bin), .obj (+ .mtl), .fbx, .stl</p>
+                <div class="flex-row" style="margin-bottom: 0;">
+                    <input type="file" id="modelInput" accept=".glb,.gltf,.bin,.obj,.mtl,.fbx,.stl,.png,.jpg,.jpeg,.webp,.ktx2,.tga" multiple title="Select all model files & textures simultaneously">
+                    <input type="file" id="palInput" accept=".pal" title="F2 Palette">
+                </div>
+                <label style="color:#fff; font-weight:bold; font-size: 12px; margin-top:5px; display:block;">3. Reference Background (Optional)</label>
+                <div class="flex-row" style="margin-bottom: 10px;">
+                    <input type="file" id="refInput" accept="image/*">
+                    <button id="clearRef" style="padding: 5px 10px; border: none; border-radius: 4px; background: #f44336; color: white; cursor:pointer;" class="hidden">X</button>
+                </div>
+
+                <button class="action-btn btn-secondary" id="btnFallout">Apply "Fallout 2" Camera</button>
+
+                <h3>Color & Tone Mapping</h3>
+                <div class="control-group">
+                    <label>Tone Mapping</label>
+                    <select id="toneMapping">
+                        <option value="0">None</option>
+                        <option value="1">Linear (Fixes Oversaturation)</option>
+                        <option value="2">Reinhard</option>
+                        <option value="3">Cineon</option>
+                        <option value="4" selected>ACES Filmic</option>
+                    </select>
+                </div>
+                <div class="control-group">
+                    <label>Exposure</label>
+                    <div class="slider-wrap">
+                        <button onclick="stepVal('exposure', -1)">-</button>
+                        <input type="range" id="exposure" min="0.1" max="5" step="0.1" value="1.0">
+                        <button onclick="stepVal('exposure', 1)">+</button>
+                    </div>
+                    <span id="valExp">1.0</span>
+                </div>
+                <div class="control-group">
+                    <label>Saturation</label>
+                    <div class="slider-wrap">
+                        <button onclick="stepVal('saturation', -1)">-</button>
+                        <input type="range" id="saturation" min="0" max="2" step="0.1" value="1.0">
+                        <button onclick="stepVal('saturation', 1)">+</button>
+                    </div>
+                    <span id="valSat">1.0</span>
+                </div>
+
+                <h3 style="margin-top: 15px;">Ground & Shadows Options</h3>
+                <div class="flex-row" style="justify-content: space-between; flex-wrap: wrap;">
+                    <div>
+                        <input type="checkbox" id="envLighting" checked>
+                        <label for="envLighting">PBR Env.</label>
+                    </div>
+                    <div>
+                        <input type="checkbox" id="enableShadows" checked>
+                        <label for="enableShadows">Soft Shadows</label>
+                    </div>
+                    <div>
+                        <input type="checkbox" id="groundShadow" checked>
+                        <label for="groundShadow">Ground Plane Shadow</label>
+                    </div>
+                </div>
+                <div class="control-group">
+                    <label>Ground Shadow Opacity</label>
+                    <div class="slider-wrap">
+                        <button onclick="stepVal('shadowOpacity', -1)">-</button>
+                        <input type="range" id="shadowOpacity" min="0" max="1" step="0.05" value="0.5">
+                        <button onclick="stepVal('shadowOpacity', 1)">+</button>
+                    </div>
+                    <span id="valShadowOp">0.50</span>
+                </div>
+                <div class="control-group">
+                    <label>Shadow Map Type</label>
+                    <select id="shadowType">
+                        <option value="0">Basic Shadow Map</option>
+                        <option value="1">PCF Shadow Map</option>
+                        <option value="2" selected>PCF Soft Shadow Map</option>
+                        <option value="3">VSM Shadow Map</option>
+                    </select>
+                </div>
+                <div class="control-group">
+                    <label>Shadow Map Res</label>
+                    <select id="shadowRes">
+                        <option value="512">512x512</option>
+                        <option value="1024">1024x1024</option>
+                        <option value="2048" selected>2048x2048</option>
+                        <option value="4096">4096x4096</option>
+                    </select>
+                </div>
+                <div class="control-group">
+                    <label>Shadow Blur Radius</label>
+                    <div class="slider-wrap">
+                        <button onclick="stepVal('shadowRadius', -1)">-</button>
+                        <input type="range" id="shadowRadius" min="1" max="10" step="0.5" value="2">
+                        <button onclick="stepVal('shadowRadius', 1)">+</button>
+                    </div>
+                    <span id="valShadowRad">2.0</span>
+                </div>
+                <div class="control-group">
+                    <label>Light Elevation</label>
+                    <div class="slider-wrap">
+                        <button onclick="stepVal('lightElevation', -1)">-</button>
+                        <input type="range" id="lightElevation" min="10" max="90" step="5" value="60">
+                        <button onclick="stepVal('lightElevation', 1)">+</button>
+                    </div>
+                    <span id="valLightEl">60°</span>
+                </div>
+                <div class="control-group">
+                    <label>Light Direction (Az.)</label>
+                    <div class="slider-wrap">
+                        <button onclick="stepVal('lightAzimuth', -1)">-</button>
+                        <input type="range" id="lightAzimuth" min="0" max="360" step="5" value="45">
+                        <button onclick="stepVal('lightAzimuth', 1)">+</button>
+                    </div>
+                    <span id="valLightAz">45°</span>
+                </div>
+                <div class="control-group">
+                    <label>Dir Light Int.</label>
+                    <div class="slider-wrap">
+                        <button onclick="stepVal('lightInt', -1)">-</button>
+                        <input type="range" id="lightInt" min="0" max="5" step="0.1" value="2.0">
+                        <button onclick="stepVal('lightInt', 1)">+</button>
+                    </div>
+                    <span id="valLight">2.0</span>
+                </div>
+                <div class="control-group">
+                    <label>Amb Light Int.</label>
+                    <div class="slider-wrap">
+                        <button onclick="stepVal('ambientInt', -1)">-</button>
+                        <input type="range" id="ambientInt" min="0" max="5" step="0.1" value="0.6">
+                        <button onclick="stepVal('ambientInt', 1)">+</button>
+                    </div>
+                    <span id="valAmbient">0.6</span>
+                </div>
+                <div class="control-group">
+                    <label>Shadow Bias</label>
+                    <div class="slider-wrap">
+                        <button onclick="stepVal('shadowBias', -1)">-</button>
+                        <input type="range" id="shadowBias" min="-0.01" max="0.01" step="0.0001" value="-0.001">
+                        <button onclick="stepVal('shadowBias', 1)">+</button>
+                    </div>
+                    <span id="valBias">-0.001</span>
+                </div>
+
+                <h3 style="margin-top: 15px;">Expanded Dithering Options</h3>
+                <div class="control-group">
+                    <label>Algorithm</label>
+                    <select id="ditherSelect">
+                        <option value="none" selected>None (Nearest)</option>
+                        <option value="fs">Floyd-Steinberg</option>
+                        <option value="atkinson">Atkinson (Clean Pixel Art)</option>
+                        <option value="bayer2">Bayer 2x2 (Coarse Grid)</option>
+                        <option value="bayer">Bayer 4x4 (Grid Pattern)</option>
+                        <option value="bayer8">Bayer 8x8 (Fine Grid)</option>
+                        <option value="burkes">Burkes Error Diffusion</option>
+                        <option value="sierra3">Sierra-3 (Full Sierra)</option>
+                        <option value="sierra2">Two-Row Sierra</option>
+                        <option value="sierralite">Sierra Lite (Fast)</option>
+                        <option value="jjn">Jarvis-Judice-Ninke (JJN)</option>
+                        <option value="stucki">Stucki Error Diffusion</option>
+                        <option value="ordered8">Clustered Dot 8x8 (Retro Print)</option>
+                    </select>
+                </div>
+                <div class="control-group">
+                    <label>Dither Strength</label>
+                    <div class="slider-wrap">
+                        <button onclick="stepVal('ditherStrength', -1)">-</button>
+                        <input type="range" id="ditherStrength" min="1" max="64" step="1" value="16">
+                        <button onclick="stepVal('ditherStrength', 1)">+</button>
+                    </div>
+                    <span id="valDitherStr">16</span>
+                </div>
+
+                <h3 style="margin-top: 15px;">Image Effects & Post-Processing</h3>
+                <div class="flex-row" style="justify-content: space-between;">
+                    <div>
+                        <input type="checkbox" id="outlineEnable">
+                        <label for="outlineEnable">Pixel Outline</label>
+                    </div>
+                    <div>
+                        <input type="checkbox" id="scanlines">
+                        <label for="scanlines">CRT Scanlines</label>
+                    </div>
+                </div>
+                <div class="control-group">
+                    <label>Outline Color</label>
+                    <input type="color" id="outlineColor" value="#000000">
+                </div>
+                <div class="control-group">
+                    <label>Outline Thick</label>
+                    <div class="slider-wrap">
+                        <button onclick="stepVal('outlineThickness', -1)">-</button>
+                        <input type="range" id="outlineThickness" min="1" max="5" step="1" value="1">
+                        <button onclick="stepVal('outlineThickness', 1)">+</button>
+                    </div>
+                    <span id="valOutlineThick">1px</span>
+                </div>
+                <div class="control-group">
+                    <label>Brightness</label>
+                    <div class="slider-wrap">
+                        <button onclick="stepVal('brightness', -1)">-</button>
+                        <input type="range" id="brightness" min="-1" max="1" step="0.05" value="0">
+                        <button onclick="stepVal('brightness', 1)">+</button>
+                    </div>
+                    <span id="valBright">0.00</span>
+                </div>
+                <div class="control-group">
+                    <label>Contrast</label>
+                    <div class="slider-wrap">
+                        <button onclick="stepVal('contrast', -1)">-</button>
+                        <input type="range" id="contrast" min="0" max="2" step="0.05" value="1">
+                        <button onclick="stepVal('contrast', 1)">+</button>
+                    </div>
+                    <span id="valContrast">1.00</span>
+                </div>
+                <div class="control-group">
+                    <label>Posterize (Levels)</label>
+                    <div class="slider-wrap">
+                        <button onclick="stepVal('posterize', -1)">-</button>
+                        <input type="range" id="posterize" min="2" max="256" step="1" value="256">
+                        <button onclick="stepVal('posterize', 1)">+</button>
+                    </div>
+                    <span id="valPosterize">256</span>
+                </div>
+                <div class="control-group">
+                    <label>Hue Shift</label>
+                    <div class="slider-wrap">
+                        <button onclick="stepVal('hueShift', -1)">-</button>
+                        <input type="range" id="hueShift" min="0" max="360" step="5" value="0">
+                        <button onclick="stepVal('hueShift', 1)">+</button>
+                    </div>
+                    <span id="valHue">0°</span>
+                </div>
+
+                <h3 style="margin-top: 15px;">Camera & Transform</h3>
+                <div class="control-group">
+                    <label>Resolution</label>
+                    <select id="frameRes">
+                        <option value="64">64x64</option>
+                        <option value="128" selected>128x128</option>
+                        <option value="256">256x256</option>
+                        <option value="512">512x512</option>
+                        <option value="1024">1024x1024</option>
+                    </select>
+                </div>
+                <div class="control-group">
+                    <label>Camera Zoom</label>
+                    <div class="slider-wrap">
+                        <button onclick="stepVal('camZoom', -1)">-</button>
+                        <input type="range" id="camZoom" min="0.1" max="5" step="0.1" value="1.0">
+                        <button onclick="stepVal('camZoom', 1)">+</button>
+                    </div>
+                    <span id="valZoom">1.0x</span>
+                </div>
+                <div class="control-group">
+                    <label>Elev. (Pitch)</label>
+                    <div class="slider-wrap">
+                        <button onclick="stepVal('camElevation', -1)">-</button>
+                        <input type="range" id="camElevation" min="0" max="90" step="0.1" value="30">
+                        <button onclick="stepVal('camElevation', 1)">+</button>
+                    </div>
+                    <span id="valElevation">30.0°</span>
+                </div>
+                <div class="control-group">
+                    <label>Azimuth</label>
+                    <div class="slider-wrap">
+                        <button onclick="stepVal('camAzimuth', -1)">-</button>
+                        <input type="range" id="camAzimuth" min="0" max="360" step="0.1" value="56.7">
+                        <button onclick="stepVal('camAzimuth', 1)">+</button>
+                    </div>
+                    <span id="valAzimuth">56.7°</span>
+                </div>
+                <div class="control-group">
+                    <label>Model Scale</label>
+                    <div class="slider-wrap">
+                        <button onclick="stepVal('modelScale', -1)">-</button>
+                        <input type="range" id="modelScale" min="0.001" max="10" step="0.001" value="1">
+                        <button onclick="stepVal('modelScale', 1)">+</button>
+                    </div>
+                    <input type="number" id="valScaleInput" class="custom-num-input" value="1.0" step="0.001">
+                </div>
+                <div class="control-group">
+                    <label>Y-Offset</label>
+                    <div class="slider-wrap">
+                        <button onclick="stepVal('modelY', -1)">-</button>
+                        <input type="range" id="modelY" min="-10" max="10" step="0.1" value="0">
+                        <button onclick="stepVal('modelY', 1)">+</button>
+                    </div>
+                    <span id="valY">0.0</span>
+                </div>
+                <div class="control-group">
+                    <label>Base Rot.</label>
+                    <div class="slider-wrap">
+                        <button onclick="stepVal('baseRot', -1)">-</button>
+                        <input type="range" id="baseRot" min="-180" max="180" step="1" value="0">
+                        <button onclick="stepVal('baseRot', 1)">+</button>
+                    </div>
+                    <span id="valRot">0°</span>
+                </div>
+                <div class="control-group">
+                    <label>Directions</label>
+                    <div class="slider-wrap">
+                        <button onclick="stepVal('dirCount', -1)">-</button>
+                        <input type="range" id="dirCount" min="1" max="16" step="1" value="6">
+                        <button onclick="stepVal('dirCount', 1)">+</button>
+                    </div>
+                    <span id="valDir">6</span>
+                </div>
+                <div class="flex-row">
+                    <input type="checkbox" id="useFalloutAngles" checked>
+                    <label for="useFalloutAngles" style="color:#e67e22;">Use F2 Angle Array [120, 60, 0, -60, -120, -180]</label>
+                </div>
+                
+                <div class="flex-row">
+                    <input type="checkbox" id="cropFrm" checked>
+                    <label for="cropFrm" style="color:#2196F3;">Auto-Trim Transparent Pixels</label>
+                </div>
+
+                <div id="animControls" class="hidden" style="background:#111; padding:10px; border-radius:4px; margin-top:10px; border: 1px solid #333;">
+                    <div class="control-group">
+                        <label>Animation</label>
+                        <select id="animSelect"></select>
+                    </div>
+                    <div class="control-group">
+                        <label>Frames/Dir</label>
+                        <input type="number" id="frameCount" min="1" max="120" value="8">
+                    </div>
+                </div>
+
+                <button class="action-btn" id="generateBtn" disabled>Render Spritesheet</button>
+            </div>
+        </div>
+
+        <!-- RIGHT VIEWPORT & RESULTS COLUMN -->
+        <div class="right-column">
+            
+            <div class="viewport-section">
+                <div id="preview-container"></div>
+            </div>
+            
+            <div class="results-section">
+                <div class="panel" id="result-container">
+                    <p style="margin-top:0; font-size: 12px; color: #aaa;">Result (Cols=Frames, Rows=Dirs):</p>
+                    <img id="resultImage" alt="Spritesheet">
+                    
+                    <div class="control-group" style="margin-top: 10px;">
+                        <label>GIF Direction Mode</label>
+                        <select id="gifDirSelect">
+                            <option value="dir_0">Direction 0 (South)</option>
+                        </select>
+                    </div>
+                    <div class="control-group">
+                        <label>GIF Frame Delay</label>
+                        <div class="slider-wrap">
+                            <button onclick="stepVal('gifDelay', -1)">-</button>
+                            <input type="range" id="gifDelay" min="20" max="500" step="10" value="100">
+                            <button onclick="stepVal('gifDelay', 1)">+</button>
+                        </div>
+                        <span id="valGifDelay">100ms</span>
+                    </div>
+
+                    <div class="export-row">
+                        <button id="btnDlPng" style="background: #2196F3;">Save PNG</button>
+                        <button id="btnDlGif" style="background: #9C27B0;">Export GIF</button>
+                        <button id="btnDlFrm" style="background: #f44336;" disabled title="Requires .pal to be loaded">Save .FRM</button>
+                    </div>
+                </div>
+            </div>
+            
+        </div>
+    </div>
+
+    <script async src="https://unpkg.com/es-module-shims@1.8.0/dist/es-module-shims.js"></script>
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+          "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+        }
+      }
+    </script>
+
+    <script type="module">
+        import * as THREE from 'three';
+        import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+        import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
+        import { MTLLoader } from 'three/addons/loaders/MTLLoader.js';
+        import { FBXLoader } from 'three/addons/loaders/FBXLoader.js';
+        import { STLLoader } from 'three/addons/loaders/STLLoader.js';
+        import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+        import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
+        import { KTX2Loader } from 'three/addons/loaders/KTX2Loader.js';
+        import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
+
+        const statusLog = document.getElementById('status-log');
+        const log = (msg) => { statusLog.innerText = `> ${msg}\n` + statusLog.innerText; console.log(msg); };
+
+        let gifWorkerBlobUrl = null;
+        fetch('https://cdn.jsdelivr.net/npm/gif.js/dist/gif.worker.js')
+            .then(res => res.text())
+            .then(text => {
+                gifWorkerBlobUrl = URL.createObjectURL(new Blob([text], { type: 'application/javascript' }));
+                log("GIF Encoder successfully buffered.");
+            })
+            .catch(e => log("Warning: Couldn't buffer GIF worker."));
+
+        window.stepVal = function(id, direction) {
+            const el = document.getElementById(id);
+            if (!el) return;
+            const step = parseFloat(el.step) || 1;
+            let val = parseFloat(el.value) + (step * direction);
+            
+            const decimals = (el.step && el.step.includes('.')) ? el.step.split('.')[1].length : 0;
+            val = parseFloat(val.toFixed(decimals));
+
+            if(id !== 'modelScale') {
+                const min = parseFloat(el.min), max = parseFloat(el.max);
+                if(!isNaN(min) && val < min) val = min;
+                if(!isNaN(max) && val > max) val = max;
+            } else {
+                if(val < 0.0001) val = 0.0001; 
+            }
+            
+            el.value = val;
+            el.dispatchEvent(new Event('input'));
+        };
+
+        // --- CORE GRAPHICS SETUP ---
+        const frustumSize = 10;
+        const previewContainer = document.getElementById('preview-container');
+        const scene = new THREE.Scene();
+        
+        // Orthographic Camera naturally preserves 1:1 ratios
+        const camera = new THREE.OrthographicCamera(
+            frustumSize / -2, frustumSize / 2, 
+            frustumSize / 2, frustumSize / -2, 
+            0.1, 1000
+        );
+        
+        const renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true, preserveDrawingBuffer: true });
+        
+        renderer.setSize(previewContainer.clientWidth, previewContainer.clientWidth);
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+        renderer.setClearColor(0x000000, 0); 
+        renderer.outputColorSpace = THREE.SRGBColorSpace;
+        renderer.toneMapping = THREE.ACESFilmicToneMapping;
+        renderer.toneMappingExposure = 1.0;
+        renderer.shadowMap.enabled = true;
+        renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+
+        previewContainer.appendChild(renderer.domElement);
+
+        window.addEventListener('resize', () => {
+            if(!isRendering) {
+                renderer.setSize(previewContainer.clientWidth, previewContainer.clientWidth);
+                updateRefBackground();
+            }
+        });
+
+        // --- BACKGROUND REFERENCE IMAGE ---
+        let refImgObj = null;
+
+        function updateRefBackground() {
+            if(!refImgObj) return;
+            const frameRes = parseInt(document.getElementById('frameRes').value);
+            const containerW = previewContainer.clientWidth;
+            const scale = containerW / frameRes;
+            const bgW = refImgObj.naturalWidth * scale;
+            const bgH = refImgObj.naturalHeight * scale;
+            
+            previewContainer.style.backgroundImage = `url(${refImgObj.src})`;
+            previewContainer.style.backgroundSize = `${bgW}px ${bgH}px`;
+            previewContainer.style.backgroundPosition = 'center';
+            previewContainer.style.backgroundRepeat = 'no-repeat';
+        }
+
+        document.getElementById('refInput').addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if(file) {
+                const url = URL.createObjectURL(file);
+                const img = new Image();
+                img.onload = () => {
+                    refImgObj = img;
+                    updateRefBackground();
+                    document.getElementById('clearRef').classList.remove('hidden');
+                    log("Reference background applied at accurate relative scale.");
+                };
+                img.src = url;
+            }
+        });
+        
+        document.getElementById('clearRef').addEventListener('click', () => {
+            refImgObj = null;
+            previewContainer.style.backgroundImage = 'none';
+            document.getElementById('refInput').value = '';
+            document.getElementById('clearRef').classList.add('hidden');
+        });
+
+        document.getElementById('frameRes').addEventListener('change', () => updateRefBackground());
+
+        // --- LIGHTING & ENVIRONMENT ---
+        const pmremGenerator = new THREE.PMREMGenerator(renderer);
+        const roomEnv = new RoomEnvironment();
+        const envTexture = pmremGenerator.fromScene(roomEnv, 0.04).texture;
+        scene.environment = envTexture; 
+
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+        scene.add(ambientLight);
+
+        const dirLight = new THREE.DirectionalLight(0xffffff, 2.0);
+        dirLight.position.set(10, 20, 10);
+        dirLight.castShadow = true;
+        dirLight.shadow.camera.top = 10;
+        dirLight.shadow.camera.bottom = -10;
+        dirLight.shadow.camera.left = -10;
+        dirLight.shadow.camera.right = 10;
+        dirLight.shadow.bias = -0.001; 
+        dirLight.shadow.mapSize.width = 2048; 
+        dirLight.shadow.mapSize.height = 2048;
+        dirLight.shadow.radius = 2.0;
+        scene.add(dirLight);
+
+        // Ground Plane for Shadow Catching
+        const shadowPlaneGeo = new THREE.PlaneGeometry(100, 100);
+        const shadowPlaneMat = new THREE.ShadowMaterial({ opacity: 0.5 });
+        const shadowPlane = new THREE.Mesh(shadowPlaneGeo, shadowPlaneMat);
+        shadowPlane.rotation.x = -Math.PI / 2;
+        shadowPlane.position.y = 0;
+        shadowPlane.receiveShadow = true;
+        scene.add(shadowPlane);
+
+        const gridHelper = new THREE.GridHelper(10, 10, 0x444444, 0x222222);
+        gridHelper.position.y = -0.01;
+        scene.add(gridHelper);
+
+        let loadedModel = null, baseScale = 1;
+        let mixer = null, animations = [], activeAction = null;
+        let currentPalette = null;
+        let isRendering = false;
+        const clock = new THREE.Clock();
+
+        let currentPngUrl = null;
+        let currentCtxData = null; 
+        let currentFrmIndices = []; 
+        let renderConfig = { frames: 1, dirs: 1, size: 128 };
+
+        function animate() {
+            requestAnimationFrame(animate);
+            if (isRendering) return;
+            if (mixer) mixer.update(clock.getDelta());
+            if (loadedModel) loadedModel.rotation.y = parseFloat(document.getElementById('baseRot').value) * (Math.PI / 180);
+            renderer.render(scene, camera);
+        }
+        animate(); 
+
+        // --- PALETTE ---
+        document.getElementById('palInput').addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = function(evt) {
+                const buffer = evt.target.result;
+                const text = new TextDecoder().decode(buffer);
+                currentPalette = [];
+                
+                if (text.startsWith("JASC-PAL")) {
+                    const lines = text.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+                    for(let i = 3; i < lines.length; i++) {
+                        const rgb = lines[i].split(' ').map(Number);
+                        if(rgb.length === 3) currentPalette.push(rgb);
+                    }
+                    log(`Loaded JASC Palette: ${currentPalette.length} colors.`);
+                } else if (buffer.byteLength >= 768) {
+                    const bytes = new Uint8Array(buffer);
+                    for(let i=0; i<768; i+=3) {
+                        currentPalette.push([bytes[i], bytes[i+1], bytes[i+2]]);
+                    }
+                    log(`Loaded Raw Binary Palette.`);
+                }
+                document.getElementById('btnDlFrm').title = "Ready to export Frm";
+            };
+            reader.readAsArrayBuffer(file);
+        });
+
+        // --- LIGHT & CAMERA TRANSFORM ---
+        function updateTransform() {
+            const elevation = parseFloat(document.getElementById('camElevation').value) * (Math.PI / 180);
+            const azimuth = parseFloat(document.getElementById('camAzimuth').value) * (Math.PI / 180);
+            const radius = 20;
+
+            const xzLen = radius * Math.cos(elevation);
+            camera.position.x = xzLen * Math.sin(azimuth);
+            camera.position.y = radius * Math.sin(elevation);
+            camera.position.z = xzLen * Math.cos(azimuth);
+            camera.lookAt(0, 0, 0);
+            
+            if (loadedModel) {
+                const scaleMulti = parseFloat(document.getElementById('valScaleInput').value);
+                if(!isNaN(scaleMulti)) loadedModel.scale.setScalar(baseScale * scaleMulti);
+                loadedModel.position.y = parseFloat(document.getElementById('modelY').value);
+            }
+
+            // Update Directional Light Position
+            const lightAz = parseFloat(document.getElementById('lightAzimuth').value) * (Math.PI / 180);
+            const lightEl = parseFloat(document.getElementById('lightElevation').value) * (Math.PI / 180);
+            const lightDist = 30;
+            dirLight.position.x = lightDist * Math.cos(lightEl) * Math.sin(lightAz);
+            dirLight.position.y = lightDist * Math.sin(lightEl);
+            dirLight.position.z = lightDist * Math.cos(lightEl) * Math.cos(lightAz);
+            dirLight.lookAt(0, 0, 0);
+        }
+
+        // --- GIF DIRECTION DROPDOWN UPDATER ---
+        function updateGifDirOptions() {
+            const select = document.getElementById('gifDirSelect');
+            if (!select) return;
+            const currentVal = select.value;
+            select.innerHTML = '';
+            
+            const dirs = parseInt(document.getElementById('dirCount').value) || 6;
+            const useFallout = document.getElementById('useFalloutAngles').checked;
+            const f2Angles = [120, 60, 0, -60, -120, -180];
+            
+            for (let d = 0; d < dirs; d++) {
+                let angleStr = '';
+                if (useFallout && dirs === 6) {
+                    angleStr = ` (${f2Angles[d]}°)`;
+                } else {
+                    const deg = Math.round((360 / dirs) * d);
+                    angleStr = ` (${deg}°)`;
+                }
+                const opt = document.createElement('option');
+                opt.value = `dir_${d}`;
+                opt.text = `Direction ${d}${angleStr}`;
+                select.appendChild(opt);
+            }
+            
+            const optSpin = document.createElement('option');
+            optSpin.value = 'all_spin';
+            optSpin.text = 'All Dirs (360 Spin Sequence)';
+            select.appendChild(optSpin);
+            
+            const optStacked = document.createElement('option');
+            optStacked.value = 'all_stacked';
+            optStacked.text = 'All Dirs (Stacked Sheet)';
+            select.appendChild(optStacked);
+            
+            const optBatch = document.createElement('option');
+            optBatch.value = 'batch_all';
+            optBatch.text = 'Batch Export All Dirs (Separate GIFs)';
+            select.appendChild(optBatch);
+            
+            if (select.querySelector(`option[value="${currentVal}"]`)) {
+                select.value = currentVal;
+            } else {
+                select.value = 'dir_0';
+            }
+        }
+
+        // --- EVENT LISTENERS ---
+        const sliderBindings = [
+            { id: 'exposure', span: 'valExp', suffix: '' },
+            { id: 'saturation', span: 'valSat', suffix: '' },
+            { id: 'lightInt', span: 'valLight', suffix: '' },
+            { id: 'ambientInt', span: 'valAmbient', suffix: '' },
+            { id: 'shadowBias', span: 'valBias', suffix: '' },
+            { id: 'shadowOpacity', span: 'valShadowOp', suffix: '' },
+            { id: 'shadowRadius', span: 'valShadowRad', suffix: '' },
+            { id: 'lightElevation', span: 'valLightEl', suffix: '°' },
+            { id: 'lightAzimuth', span: 'valLightAz', suffix: '°' },
+            { id: 'ditherStrength', span: 'valDitherStr', suffix: '' },
+            { id: 'camZoom', span: 'valZoom', suffix: 'x' },
+            { id: 'camElevation', span: 'valElevation', suffix: '°' },
+            { id: 'camAzimuth', span: 'valAzimuth', suffix: '°' },
+            { id: 'modelY', span: 'valY', suffix: '' },
+            { id: 'baseRot', span: 'valRot', suffix: '°' },
+            { id: 'dirCount', span: 'valDir', suffix: '' },
+            { id: 'outlineThickness', span: 'valOutlineThick', suffix: 'px' },
+            { id: 'brightness', span: 'valBright', suffix: '' },
+            { id: 'contrast', span: 'valContrast', suffix: '' },
+            { id: 'posterize', span: 'valPosterize', suffix: '' },
+            { id: 'hueShift', span: 'valHue', suffix: '°' },
+            { id: 'gifDelay', span: 'valGifDelay', suffix: 'ms' }
+        ];
+
+        sliderBindings.forEach(({ id, span, suffix }) => {
+            const el = document.getElementById(id);
+            if (!el) return;
+            el.addEventListener('input', (e) => {
+                let displayVal = e.target.value + suffix;
+                const targetSpan = document.getElementById(span);
+                if (targetSpan) targetSpan.innerText = displayVal;
+                
+                if (id === 'lightInt') dirLight.intensity = parseFloat(e.target.value);
+                else if (id === 'ambientInt') ambientLight.intensity = parseFloat(e.target.value);
+                else if (id === 'shadowBias') {
+                    dirLight.shadow.bias = parseFloat(e.target.value);
+                    if(loadedModel) loadedModel.traverse(n => { if(n.isMesh && n.material) n.material.needsUpdate = true; });
+                }
+                else if (id === 'shadowOpacity') shadowPlaneMat.opacity = parseFloat(e.target.value);
+                else if (id === 'shadowRadius') dirLight.shadow.radius = parseFloat(e.target.value);
+                else if (id === 'exposure') renderer.toneMappingExposure = parseFloat(e.target.value);
+                else if (id === 'camZoom') {
+                    camera.zoom = parseFloat(e.target.value);
+                    camera.updateProjectionMatrix();
+                }
+                else if (id === 'dirCount') updateGifDirOptions();
+                
+                updateTransform();
+            });
+        });
+
+        document.getElementById('shadowType').addEventListener('change', (e) => {
+            const types = [THREE.BasicShadowMap, THREE.PCFShadowMap, THREE.PCFSoftShadowMap, THREE.VSMShadowMap];
+            renderer.shadowMap.type = types[parseInt(e.target.value)] || THREE.PCFSoftShadowMap;
+            if(loadedModel) loadedModel.traverse(n => { if(n.isMesh && n.material) n.material.needsUpdate = true; });
+        });
+
+        document.getElementById('shadowRes').addEventListener('change', (e) => {
+            const res = parseInt(e.target.value);
+            dirLight.shadow.mapSize.width = res;
+            dirLight.shadow.mapSize.height = res;
+            if (dirLight.shadow.map) {
+                dirLight.shadow.map.dispose();
+                dirLight.shadow.map = null;
+            }
+        });
+
+        document.getElementById('groundShadow').addEventListener('change', (e) => {
+            shadowPlane.visible = e.target.checked;
+        });
+
+        document.getElementById('useFalloutAngles').addEventListener('change', () => updateGifDirOptions());
+
+        document.getElementById('toneMapping').addEventListener('change', (e) => {
+            renderer.toneMapping = parseInt(e.target.value);
+            if(loadedModel) loadedModel.traverse(n => { if(n.isMesh && n.material) n.material.needsUpdate = true; });
+        });
+
+        document.getElementById('valScaleInput').addEventListener('input', (e) => {
+            let val = parseFloat(e.target.value);
+            if(!isNaN(val)) {
+                document.getElementById('modelScale').value = val;
+                updateTransform();
+            }
+        });
+
+        document.getElementById('envLighting').addEventListener('change', (e) => scene.environment = e.target.checked ? envTexture : null);
+        document.getElementById('enableShadows').addEventListener('change', (e) => dirLight.castShadow = e.target.checked);
+        
+        document.getElementById('animSelect').addEventListener('change', (e) => {
+            if (mixer && animations.length > 0) {
+                mixer.stopAllAction();
+                activeAction = mixer.clipAction(animations[e.target.value]);
+                activeAction.play();
+            }
+        });
+
+        document.getElementById('btnFallout').addEventListener('click', () => {
+            document.getElementById('camElevation').value = 30; 
+            document.getElementById('valElevation').innerText = '30.0°';
+            document.getElementById('camAzimuth').value = 56.7;
+            document.getElementById('valAzimuth').innerText = '56.7°';
+            document.getElementById('dirCount').value = 6;
+            document.getElementById('valDir').innerText = '6';
+            document.getElementById('useFalloutAngles').checked = true;
+            updateGifDirOptions();
+            updateTransform();
+            log('Applied TRUE Fallout 2 Camera (Elev: 30°, Azimuth: 56.7°).');
+        });
+
+        // --- ADVANCED MULTI-FORMAT & TEXTURE LOAD LOGIC ---
+        const fileMap = {};
+        const manager = new THREE.LoadingManager();
+        
+        manager.setURLModifier((url) => {
+            if (url.startsWith('blob:') || url.startsWith('data:')) return url;
+            const requestedPath = url.replace(/\\/g, '/'); 
+            const fileName = requestedPath.split('/').pop().split('?')[0].toLowerCase();
+            
+            for(let key in fileMap) {
+                if (key.toLowerCase() === fileName) return fileMap[key];
+            }
+            return url;
+        });
+        
+        const dracoLoader = new DRACOLoader();
+        dracoLoader.setDecoderPath('https://www.gstatic.com/draco/versioned/decoders/1.5.6/');
+        
+        const ktx2Loader = new KTX2Loader();
+        ktx2Loader.setTranscoderPath('https://unpkg.com/three@0.160.0/examples/jsm/libs/basis/');
+        ktx2Loader.detectSupport(renderer);
+
+        const gltfLoader = new GLTFLoader(manager);
+        gltfLoader.setDRACOLoader(dracoLoader);
+        gltfLoader.setKTX2Loader(ktx2Loader);
+        gltfLoader.setMeshoptDecoder(MeshoptDecoder);
+
+        const objLoader = new OBJLoader(manager);
+        const mtlLoader = new MTLLoader(manager);
+        const fbxLoader = new FBXLoader(manager);
+        const stlLoader = new STLLoader(manager);
+
+        // Auto-generate missing UVs if absent
+        function ensureUVs(geometry) {
+            if (geometry.attributes.uv) return;
+            const pos = geometry.attributes.position;
+            if (!pos) return;
+            const count = pos.count;
+            const uvs = new Float32Array(count * 2);
+            
+            let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+            for (let i = 0; i < count; i++) {
+                const x = pos.getX(i), y = pos.getY(i);
+                if (x < minX) minX = x; if (x > maxX) maxX = x;
+                if (y < minY) minY = y; if (y > maxY) maxY = y;
+            }
+            const rangeX = (maxX - minX) || 1;
+            const rangeY = (maxY - minY) || 1;
+            
+            for (let i = 0; i < count; i++) {
+                uvs[i * 2] = (pos.getX(i) - minX) / rangeX;
+                uvs[i * 2 + 1] = (pos.getY(i) - minY) / rangeY;
+            }
+            geometry.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
+        }
+
+        // Texture/Material Robust Repair Function
+        function repairAndOptimizeModel(modelGroup) {
+            const imageExtensions = ['.png', '.jpg', '.jpeg', '.webp', '.bmp'];
+            const textureFiles = Object.keys(fileMap).filter(k => imageExtensions.some(ext => k.toLowerCase().endsWith(ext)));
+            
+            let loadedTextures = {};
+            const textureLoader = new THREE.TextureLoader();
+
+            modelGroup.traverse((node) => {
+                if (node.isMesh) {
+                    node.castShadow = true;
+                    node.receiveShadow = true;
+
+                    if (node.geometry) ensureUVs(node.geometry);
+
+                    if (!node.material) {
+                        node.material = new THREE.MeshStandardMaterial({ color: 0xcccccc, roughness: 0.7, metalness: 0.1 });
+                    }
+
+                    const materials = Array.isArray(node.material) ? node.material : [node.material];
+                    
+                    materials.forEach((mat) => {
+                        mat.side = THREE.DoubleSide;
+                        
+                        if (mat.map) {
+                            mat.map.colorSpace = THREE.SRGBColorSpace;
+                        } else if (textureFiles.length > 0) {
+                            let matchedFile = textureFiles.find(tf => {
+                                const baseName = tf.split('.')[0].toLowerCase();
+                                return mat.name && mat.name.toLowerCase().includes(baseName);
+                            });
+                            if (!matchedFile && textureFiles.length === 1) {
+                                matchedFile = textureFiles[0];
+                            }
+
+                            if (matchedFile) {
+                                if (!loadedTextures[matchedFile]) {
+                                    loadedTextures[matchedFile] = textureLoader.load(fileMap[matchedFile]);
+                                    loadedTextures[matchedFile].colorSpace = THREE.SRGBColorSpace;
+                                }
+                                mat.map = loadedTextures[matchedFile];
+                            }
+                        }
+
+                        if (mat.emissiveMap) mat.emissiveMap.colorSpace = THREE.SRGBColorSpace;
+                        if (mat.metalness === undefined || mat.metalness === 1) mat.metalness = 0.1;
+                        if (mat.roughness === undefined) mat.roughness = 0.7;
+                        if (mat.transparent && mat.opacity === 0) mat.opacity = 1.0;
+                        mat.alphaTest = mat.alphaTest || 0.1;
+                        mat.needsUpdate = true;
+                    });
+                }
+            });
+        }
+
+        function finalizeLoadedModel(group, anims = []) {
+            if (loadedModel) scene.remove(loadedModel);
+            loadedModel = new THREE.Group();
+            loadedModel.add(group);
+
+            repairAndOptimizeModel(loadedModel);
+
+            const box = new THREE.Box3().setFromObject(loadedModel);
+            const size = box.getSize(new THREE.Vector3());
+            baseScale = (frustumSize * 0.6) / Math.max(size.x, size.y, size.z || 1); 
+            
+            const center = box.getCenter(new THREE.Vector3());
+            group.position.set(-center.x, -box.min.y, -center.z);
+
+            scene.add(loadedModel);
+            
+            animations = anims;
+            if (animations && animations.length > 0) {
+                mixer = new THREE.AnimationMixer(group);
+                const animSelect = document.getElementById('animSelect');
+                animSelect.innerHTML = '';
+                animations.forEach((clip, index) => {
+                    const opt = document.createElement('option');
+                    opt.value = index; opt.text = clip.name || `Animation ${index + 1}`;
+                    animSelect.appendChild(opt);
+                });
+                document.getElementById('animControls').classList.remove('hidden');
+                activeAction = mixer.clipAction(animations[0]);
+                activeAction.play();
+            } else {
+                document.getElementById('animControls').classList.add('hidden');
+                mixer = null;
+            }
+
+            updateTransform();
+            document.getElementById('generateBtn').disabled = false;
+            log("Model successfully parsed and textured.");
+        }
+
+        document.getElementById('modelInput').addEventListener('change', function(e) {
+            const files = e.target.files;
+            if (!files.length) return;
+
+            for (let key in fileMap) URL.revokeObjectURL(fileMap[key]);
+            Object.keys(fileMap).forEach(k => delete fileMap[k]);
+
+            let mainFile = null, mtlFile = null;
+            let ext = '';
+
+            for (let i = 0; i < files.length; i++) {
+                const f = files[i];
+                const lowerName = f.name.toLowerCase();
+                fileMap[f.name] = URL.createObjectURL(f);
+                fileMap[lowerName] = fileMap[f.name];
+
+                if (lowerName.endsWith('.gltf') || lowerName.endsWith('.glb')) { mainFile = f.name; ext = 'gltf'; }
+                else if (lowerName.endsWith('.obj')) { mainFile = f.name; ext = 'obj'; }
+                else if (lowerName.endsWith('.mtl')) { mtlFile = f.name; }
+                else if (lowerName.endsWith('.fbx')) { mainFile = f.name; ext = 'fbx'; }
+                else if (lowerName.endsWith('.stl')) { mainFile = f.name; ext = 'stl'; }
+            }
+
+            if (!mainFile) {
+                log("Error: No supported 3D model file (.glb, .gltf, .obj, .fbx, .stl) found.");
+                return;
+            }
+
+            log(`Loading ${mainFile}...`);
+
+            if (ext === 'gltf') {
+                gltfLoader.load(fileMap[mainFile], (gltf) => {
+                    finalizeLoadedModel(gltf.scene, gltf.animations);
+                }, undefined, (error) => { log("Error loading GLTF/GLB."); console.error(error); });
+            } else if (ext === 'obj') {
+                const loadOBJ = (materials) => {
+                    if (materials) objLoader.setMaterials(materials);
+                    else objLoader.setMaterials(null);
+                    objLoader.load(fileMap[mainFile], (obj) => {
+                        finalizeLoadedModel(obj);
+                    }, undefined, (error) => { log("Error loading OBJ."); console.error(error); });
+                };
+                if (mtlFile) {
+                    mtlLoader.load(fileMap[mtlFile], (materials) => {
+                        materials.preload();
+                        loadOBJ(materials);
+                    });
+                } else {
+                    loadOBJ(null);
+                }
+            } else if (ext === 'fbx') {
+                fbxLoader.load(fileMap[mainFile], (fbx) => {
+                    finalizeLoadedModel(fbx, fbx.animations);
+                }, undefined, (error) => { log("Error loading FBX."); console.error(error); });
+            } else if (ext === 'stl') {
+                stlLoader.load(fileMap[mainFile], (geometry) => {
+                    const mat = new THREE.MeshStandardMaterial({ color: 0x999999, roughness: 0.5, metalness: 0.2 });
+                    const mesh = new THREE.Mesh(geometry, mat);
+                    finalizeLoadedModel(mesh);
+                }, undefined, (error) => { log("Error loading STL."); console.error(error); });
+            }
+        });
+
+        // --- COLOR HELPERS ---
+        function rgbToHsl(r, g, b) {
+            r /= 255; g /= 255; b /= 255;
+            const max = Math.max(r, g, b), min = Math.min(r, g, b);
+            let h, s, l = (max + min) / 2;
+            if (max === min) { h = s = 0; }
+            else {
+                const d = max - min;
+                s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+                switch (max) {
+                    case r: h = (g - b) / d + (g < b ? 6 : 0); break;
+                    case g: h = (b - r) / d + 2; break;
+                    case b: h = (r - g) / d + 4; break;
+                }
+                h /= 6;
+            }
+            return [h, s, l];
+        }
+
+        function hslToRgb(h, s, l) {
+            let r, g, b;
+            if (s === 0) { r = g = b = l; }
+            else {
+                const hue2rgb = (p, q, t) => {
+                    if (t < 0) t += 1;
+                    if (t > 1) t -= 1;
+                    if (t < 1/6) return p + (q - p) * 6 * t;
+                    if (t < 1/2) return q;
+                    if (t < 2/3) return p + (q - p) * (2/3 - t) * 6;
+                    return p;
+                };
+                const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+                const p = 2 * l - q;
+                r = hue2rgb(p, q, h + 1/3);
+                g = hue2rgb(p, q, h);
+                b = hue2rgb(p, q, h - 1/3);
+            }
+            return [Math.round(r * 255), Math.round(g * 255), Math.round(b * 255)];
+        }
+
+        function hexToRgb(hex) {
+            hex = hex.replace('#', '');
+            if (hex.length === 3) hex = hex.split('').map(c => c + c).join('');
+            const num = parseInt(hex, 16);
+            return [(num >> 16) & 255, (num >> 8) & 255, num & 255];
+        }
+
+        // --- POST PROCESSING CANVAS EFFECTS (OUTLINE & SCANLINES) ---
+        function applyCanvasPostProcessing(canvas, ctx) {
+            const outlineEnable = document.getElementById('outlineEnable').checked;
+            const scanlines = document.getElementById('scanlines').checked;
+            
+            if (!outlineEnable && !scanlines) return;
+
+            const w = canvas.width;
+            const h = canvas.height;
+            const imgData = ctx.getImageData(0, 0, w, h);
+            const data = imgData.data;
+
+            if (scanlines) {
+                for (let y = 0; y < h; y += 2) {
+                    for (let x = 0; x < w; x++) {
+                        const idx = (y * w + x) * 4;
+                        if (data[idx + 3] > 0) {
+                            data[idx] *= 0.75;
+                            data[idx + 1] *= 0.75;
+                            data[idx + 2] *= 0.75;
+                        }
+                    }
+                }
+            }
+
+            if (outlineEnable) {
+                const outlineColorHex = document.getElementById('outlineColor').value || '#000000';
+                const thick = parseInt(document.getElementById('outlineThickness').value) || 1;
+                const [or, og, ob] = hexToRgb(outlineColorHex);
+
+                const borderPixels = [];
+
+                for (let y = 0; y < h; y++) {
+                    for (let x = 0; x < w; x++) {
+                        const idx = (y * w + x) * 4;
+                        if (data[idx + 3] < 128) {
+                            let hasOpaqueNeighbor = false;
+                            for (let dy = -thick; dy <= thick; dy++) {
+                                for (let dx = -thick; dx <= thick; dx++) {
+                                    if (dx === 0 && dy === 0) continue;
+                                    const nx = x + dx, ny = y + dy;
+                                    if (nx >= 0 && nx < w && ny >= 0 && ny < h) {
+                                        const nIdx = (ny * w + nx) * 4;
+                                        if (data[nIdx + 3] >= 128) {
+                                            hasOpaqueNeighbor = true;
+                                            break;
+                                        }
+                                    }
+                                }
+                                if (hasOpaqueNeighbor) break;
+                            }
+                            if (hasOpaqueNeighbor) {
+                                borderPixels.push(idx);
+                            }
+                        }
+                    }
+                }
+
+                for (let i = 0; i < borderPixels.length; i++) {
+                    const idx = borderPixels[i];
+                    data[idx] = or;
+                    data[idx + 1] = og;
+                    data[idx + 2] = ob;
+                    data[idx + 3] = 255;
+                }
+            }
+
+            ctx.putImageData(imgData, 0, 0);
+        }
+
+        // --- RENDER PIPELINE ---
+        document.getElementById('generateBtn').addEventListener('click', async () => {
+            if (!loadedModel) return;
+            log("Rendering... (Please wait)");
+            isRendering = true;
+            
+            setTimeout(() => {
+                const directions = parseInt(document.getElementById('dirCount').value);
+                const frameSize = parseInt(document.getElementById('frameRes').value);
+                const isAnimated = mixer !== null;
+                const frames = isAnimated ? parseInt(document.getElementById('frameCount').value) : 1;
+                const baseRotOffset = parseFloat(document.getElementById('baseRot').value) * (Math.PI / 180);
+                const useFalloutArray = document.getElementById('useFalloutAngles').checked;
+                const ditherMode = document.getElementById('ditherSelect').value;
+                const ditherStr = parseFloat(document.getElementById('ditherStrength').value);
+                const saturation = parseFloat(document.getElementById('saturation').value);
+                const brightness = parseFloat(document.getElementById('brightness').value);
+                const contrast = parseFloat(document.getElementById('contrast').value);
+                const posterizeLevels = parseInt(document.getElementById('posterize').value);
+                const hueShift = parseFloat(document.getElementById('hueShift').value);
+
+                const f2AnglesDeg = [120, 60, 0, -60, -120, -180];
+                
+                // BAYER MATRICES
+                const bayer2 = [ [0,2], [3,1] ];
+                const bayer4 = [ [0,8,2,10], [12,4,14,6], [3,11,1,9], [15,7,13,5] ];
+                const bayer8 = [
+                    [0,32,8,40,2,34,10,42], [48,16,56,24,50,18,58,26],
+                    [12,44,4,36,14,46,6,38], [60,28,52,20,62,30,54,22],
+                    [3,35,11,43,1,33,9,41], [51,19,59,27,49,17,57,25],
+                    [15,47,7,39,13,45,5,37], [63,31,55,23,61,29,53,21]
+                ];
+                const ordered8 = [
+                    [24,10,12,26,35,47,45,33], [8,0,2,14,49,57,59,43],
+                    [22,6,4,16,51,63,61,41], [30,20,18,28,37,55,53,39],
+                    [34,46,44,32,25,11,13,27], [48,56,58,42,9,1,3,15],
+                    [50,62,60,40,23,7,5,17], [36,54,52,38,31,21,19,29]
+                ];
+
+                // ERROR DIFFUSION KERNELS
+                const errorKernels = {
+                    fs: { div: 16, w: [[1,0,7], [-1,1,3], [0,1,5], [1,1,1]] },
+                    atkinson: { div: 8, w: [[1,0,1], [2,0,1], [-1,1,1], [0,1,1], [1,1,1], [0,2,1]] },
+                    burkes: { div: 32, w: [[1,0,8], [2,0,4], [-2,1,2], [-1,1,4], [0,1,8], [1,1,4], [2,1,2]] },
+                    sierra3: { div: 32, w: [[1,0,5], [2,0,3], [-2,1,2], [-1,1,4], [0,1,5], [1,1,4], [2,1,2], [-1,2,2], [0,2,3], [1,2,2]] },
+                    sierra2: { div: 16, w: [[1,0,4], [2,0,3], [-2,1,1], [-1,1,2], [0,1,3], [1,1,2], [2,1,1]] },
+                    sierralite: { div: 4, w: [[1,0,2], [-1,1,1], [0,1,1]] },
+                    jjn: { div: 48, w: [[1,0,7], [2,0,5], [-2,1,3], [-1,1,5], [0,1,7], [1,1,5], [2,1,3], [-2,2,1], [-1,2,3], [0,2,5], [1,2,3], [2,2,1]] },
+                    stucki: { div: 42, w: [[1,0,8], [2,0,4], [-2,1,2], [-1,1,4], [0,1,8], [1,1,4], [2,1,2], [-2,2,1], [-1,2,2], [0,2,4], [1,2,2], [2,2,1]] }
+                };
+
+                renderConfig = { frames, dirs: directions, size: frameSize };
+                currentFrmIndices = [];
+
+                if (isAnimated) {
+                    const clip = animations[parseInt(document.getElementById('animSelect').value)];
+                    mixer.stopAllAction();
+                    activeAction = mixer.clipAction(clip);
+                    activeAction.play();
+                }
+
+                const canvas2d = document.createElement('canvas');
+                canvas2d.width = frameSize * frames;
+                canvas2d.height = frameSize * directions;
+                const ctx = canvas2d.getContext('2d', { alpha: true });
+
+                renderer.setPixelRatio(1);
+                renderer.setSize(frameSize, frameSize);
+                gridHelper.visible = false; 
+
+                for (let d = 0; d < directions; d++) {
+                    let dirAngle = 0;
+                    if (useFalloutArray && directions === 6) {
+                        dirAngle = f2AnglesDeg[d] * (Math.PI / 180);
+                    } else {
+                        dirAngle = -d * ((Math.PI * 2) / directions);
+                    }
+                    loadedModel.rotation.y = baseRotOffset + dirAngle;
+                    
+                    for (let f = 0; f < frames; f++) {
+                        if (isAnimated) {
+                            const clip = animations[parseInt(document.getElementById('animSelect').value)];
+                            mixer.setTime((f / (frames > 1 ? frames - 1 : 1)) * clip.duration);
+                            mixer.update(0); 
+                        }
+                        
+                        renderer.render(scene, camera);
+                        
+                        const domCtx = renderer.domElement.getContext('webgl') || renderer.domElement.getContext('webgl2');
+                        const glPixels = new Uint8Array(frameSize * frameSize * 4);
+                        domCtx.readPixels(0, 0, frameSize, frameSize, domCtx.RGBA, domCtx.UNSIGNED_BYTE, glPixels);
+
+                        if (currentPalette) {
+                            const colorBuf = new Float32Array(frameSize * frameSize * 3);
+                            const alphaBuf = new Uint8Array(frameSize * frameSize);
+
+                            for (let i = 0, p = 0; i < glPixels.length; i += 4, p++) {
+                                const x = p % frameSize;
+                                const y = frameSize - 1 - Math.floor(p / frameSize);
+                                const outIdx = y * frameSize + x;
+                                colorBuf[outIdx * 3] = glPixels[i];
+                                colorBuf[outIdx * 3 + 1] = glPixels[i + 1];
+                                colorBuf[outIdx * 3 + 2] = glPixels[i + 2];
+                                alphaBuf[outIdx] = glPixels[i + 3];
+                            }
+
+                            const indices = new Uint8Array(frameSize * frameSize);
+
+                            for (let y = 0; y < frameSize; y++) {
+                                for (let x = 0; x < frameSize; x++) {
+                                    const idx = y * frameSize + x;
+                                    
+                                    if (alphaBuf[idx] < 128) {
+                                        indices[idx] = 0; 
+                                        continue;
+                                    }
+
+                                    let oldR = colorBuf[idx * 3];
+                                    let oldG = colorBuf[idx * 3 + 1];
+                                    let oldB = colorBuf[idx * 3 + 2];
+
+                                    // Brightness & Contrast
+                                    if (brightness !== 0 || contrast !== 1.0) {
+                                        oldR = (oldR - 128) * contrast + 128 + brightness * 255;
+                                        oldG = (oldG - 128) * contrast + 128 + brightness * 255;
+                                        oldB = (oldB - 128) * contrast + 128 + brightness * 255;
+                                    }
+
+                                    // Saturation
+                                    if (saturation !== 1.0) {
+                                        let luma = 0.299 * oldR + 0.587 * oldG + 0.114 * oldB;
+                                        oldR = luma + saturation * (oldR - luma);
+                                        oldG = luma + saturation * (oldG - luma);
+                                        oldB = luma + saturation * (oldB - luma);
+                                    }
+
+                                    // Hue Shift
+                                    if (hueShift !== 0) {
+                                        const [h, s, l] = rgbToHsl(oldR, oldG, oldB);
+                                        const newH = (h + hueShift / 360) % 1.0;
+                                        const [r, g, b] = hslToRgb(newH, s, l);
+                                        oldR = r; oldG = g; oldB = b;
+                                    }
+
+                                    // Posterize
+                                    if (posterizeLevels < 256) {
+                                        const step = 255 / (posterizeLevels - 1);
+                                        oldR = Math.round(oldR / step) * step;
+                                        oldG = Math.round(oldG / step) * step;
+                                        oldB = Math.round(oldB / step) * step;
+                                    }
+
+                                    // Ordered / Bayer Dithering
+                                    if (ditherMode.startsWith('bayer') || ditherMode === 'ordered8') {
+                                        let matrix = bayer4, mSize = 4;
+                                        if (ditherMode === 'bayer2') { matrix = bayer2; mSize = 2; }
+                                        else if (ditherMode === 'bayer8') { matrix = bayer8; mSize = 8; }
+                                        else if (ditherMode === 'ordered8') { matrix = ordered8; mSize = 8; }
+                                        
+                                        const maxVal = mSize * mSize;
+                                        const factor = (matrix[y % mSize][x % mSize] / maxVal) - 0.5;
+                                        oldR += factor * ditherStr;
+                                        oldG += factor * ditherStr;
+                                        oldB += factor * ditherStr;
+                                    }
+
+                                    oldR = Math.min(255, Math.max(0, oldR));
+                                    oldG = Math.min(255, Math.max(0, oldG));
+                                    oldB = Math.min(255, Math.max(0, oldB));
+
+                                    let minDist = Infinity, matchIdx = 0, newR = 0, newG = 0, newB = 0;
+                                    for(let j=0; j<currentPalette.length; j++) {
+                                        let pCol = currentPalette[j];
+                                        let dist = (oldR-pCol[0])**2 + (oldG-pCol[1])**2 + (oldB-pCol[2])**2;
+                                        if(dist < minDist) { 
+                                            minDist = dist; matchIdx = j; 
+                                            newR = pCol[0]; newG = pCol[1]; newB = pCol[2];
+                                        }
+                                    }
+                                    
+                                    indices[idx] = matchIdx;
+
+                                    // Error Diffusion Dithering
+                                    if (errorKernels[ditherMode]) {
+                                        const kernel = errorKernels[ditherMode];
+                                        const errR = oldR - newR;
+                                        const errG = oldG - newG;
+                                        const errB = oldB - newB;
+                                        const mod = ditherStr / 16.0;
+
+                                        for (let k = 0; k < kernel.w.length; k++) {
+                                            const [dx, dy, weight] = kernel.w[k];
+                                            const nx = x + dx, ny = y + dy;
+                                            if (nx >= 0 && nx < frameSize && ny >= 0 && ny < frameSize) {
+                                                const nIdx = ny * frameSize + nx;
+                                                if (alphaBuf[nIdx] >= 128) {
+                                                    const factor = (weight / kernel.div) * mod;
+                                                    colorBuf[nIdx * 3] += errR * factor;
+                                                    colorBuf[nIdx * 3 + 1] += errG * factor;
+                                                    colorBuf[nIdx * 3 + 2] += errB * factor;
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            currentFrmIndices.push(indices);
+                        } else {
+                            ctx.drawImage(renderer.domElement, f * frameSize, d * frameSize);
+                        }
+                    }
+                }
+
+                if(mixer) { mixer.setTime(0); clock.getDelta(); }
+                gridHelper.visible = true;
+                
+                renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+                renderer.setSize(previewContainer.clientWidth, previewContainer.clientWidth);
+                updateTransform();
+                isRendering = false;
+
+                if (currentPalette) {
+                    const imgData = ctx.createImageData(canvas2d.width, canvas2d.height);
+                    let idxCounter = 0;
+                    for (let d = 0; d < directions; d++) {
+                        for (let f = 0; f < frames; f++) {
+                            const indices = currentFrmIndices[idxCounter++];
+                            for (let y = 0; y < frameSize; y++) {
+                                for (let x = 0; x < frameSize; x++) {
+                                    const palIdx = indices[y * frameSize + x];
+                                    const outPx = ((d * frameSize + y) * canvas2d.width + (f * frameSize + x)) * 4;
+                                    if (palIdx === 0) {
+                                        imgData.data[outPx + 3] = 0;
+                                    } else {
+                                        const col = currentPalette[palIdx];
+                                        imgData.data[outPx] = col[0];
+                                        imgData.data[outPx + 1] = col[1];
+                                        imgData.data[outPx + 2] = col[2];
+                                        imgData.data[outPx + 3] = 255;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    ctx.putImageData(imgData, 0, 0);
+                }
+
+                applyCanvasPostProcessing(canvas2d, ctx);
+
+                currentCtxData = ctx;
+                currentPngUrl = canvas2d.toDataURL('image/png');
+                document.getElementById('resultImage').src = currentPngUrl;
+                document.getElementById('result-container').style.display = 'block';
+                document.getElementById('btnDlFrm').disabled = currentPalette === null;
+
+                log(`Success! Render complete.`);
+            }, 50);
+        });
+
+        // --- EXPORT PIPELINE ---
+        document.getElementById('btnDlPng').addEventListener('click', () => {
+            if(!currentPngUrl) return;
+            const a = document.createElement('a');
+            a.href = currentPngUrl;
+            a.download = 'spritesheet.png';
+            a.click();
+        });
+
+        document.getElementById('btnDlGif').addEventListener('click', () => {
+            if(!currentCtxData || !window.GIF) return;
+            const mode = document.getElementById('gifDirSelect').value;
+            const delay = parseInt(document.getElementById('gifDelay').value) || 100;
+            const size = renderConfig.size;
+            const totalDirs = renderConfig.dirs;
+            const totalFrames = renderConfig.frames;
+
+            const makeGifForDirection = (targetDir, filename) => {
+                log(`Generating GIF (${filename})...`);
+                const gif = new GIF({
+                    workers: 2,
+                    quality: 10,
+                    workerScript: gifWorkerBlobUrl || undefined, 
+                    transparent: 'rgba(0,0,0,0)'
+                });
+
+                if (targetDir === 'all_spin') {
+                    for(let d=0; d<totalDirs; d++) {
+                        for(let f=0; f<totalFrames; f++) {
+                            const imgData = currentCtxData.getImageData(f * size, d * size, size, size);
+                            gif.addFrame(imgData, { delay }); 
+                        }
+                    }
+                } else if (targetDir === 'all_stacked') {
+                    for(let f=0; f<totalFrames; f++) {
+                        const imgData = currentCtxData.getImageData(f * size, 0, size, size * totalDirs);
+                        gif.addFrame(imgData, { delay }); 
+                    }
+                } else {
+                    const dirIndex = parseInt(targetDir.replace('dir_', '')) || 0;
+                    for(let f=0; f<totalFrames; f++) {
+                        const imgData = currentCtxData.getImageData(f * size, dirIndex * size, size, size);
+                        gif.addFrame(imgData, { delay }); 
+                    }
+                }
+
+                gif.on('finished', function(blob) {
+                    const a = document.createElement('a');
+                    a.href = URL.createObjectURL(blob);
+                    a.download = filename;
+                    a.click();
+                    log(`Exported ${filename}.`);
+                });
+                gif.render();
+            };
+
+            if (mode === 'batch_all') {
+                for (let d = 0; d < totalDirs; d++) {
+                    setTimeout(() => {
+                        makeGifForDirection(`dir_${d}`, `anim_dir${d}.gif`);
+                    }, d * 500);
+                }
+            } else {
+                let filename = 'anim_dir0.gif';
+                if (mode === 'all_spin') filename = 'anim_360_spin.gif';
+                else if (mode === 'all_stacked') filename = 'anim_all_dirs_sheet.gif';
+                else filename = `anim_${mode}.gif`;
+                makeGifForDirection(mode, filename);
+            }
+        });
+
+        document.getElementById('btnDlFrm').addEventListener('click', () => {
+            if(!currentPalette || currentFrmIndices.length === 0) return;
+            log("Compiling binary FRM...");
+            
+            const framesPerDir = renderConfig.frames;
+            const dirs = renderConfig.dirs;
+            const frameSize = renderConfig.size;
+            const doCrop = document.getElementById('cropFrm').checked;
+            
+            const processedFrames = [];
+            let totalDataSize = 0;
+            let idxCounter = 0;
+
+            for (let d = 0; d < dirs; d++) {
+                for (let f = 0; f < framesPerDir; f++) {
+                    const rawIndices = currentFrmIndices[idxCounter++];
+                    
+                    if (!doCrop) {
+                        processedFrames.push({
+                            w: frameSize, h: frameSize, ox: 0, oy: 0, data: rawIndices
+                        });
+                        totalDataSize += 12 + (frameSize * frameSize);
+                    } else {
+                        let minX = frameSize, maxX = -1, minY = frameSize, maxY = -1;
+                        for (let y = 0; y < frameSize; y++) {
+                            for (let x = 0; x < frameSize; x++) {
+                                if (rawIndices[y * frameSize + x] !== 0) {
+                                    if (x < minX) minX = x;
+                                    if (x > maxX) maxX = x;
+                                    if (y < minY) minY = y;
+                                    if (y > maxY) maxY = y;
+                                }
+                            }
+                        }
+                        
+                        if (maxX < 0) {
+                            processedFrames.push({ w: 1, h: 1, ox: 0, oy: 0, data: new Uint8Array([0]) });
+                            totalDataSize += 13;
+                        } else {
+                            const newW = maxX - minX + 1;
+                            const newH = maxY - minY + 1;
+                            const cropped = new Uint8Array(newW * newH);
+                            for (let y = 0; y < newH; y++) {
+                                for (let x = 0; x < newW; x++) {
+                                    cropped[y * newW + x] = rawIndices[(minY + y) * frameSize + (minX + x)];
+                                }
+                            }
+                            
+                            processedFrames.push({ w: newW, h: newH, ox: 0, oy: 0, data: cropped });
+                            totalDataSize += 12 + (newW * newH);
+                        }
+                    }
+                }
+            }
+            
+            const buffer = new ArrayBuffer(62 + totalDataSize); 
+            const view = new DataView(buffer);
+            const u8 = new Uint8Array(buffer);
+            
+            view.setUint32(0, 4);  
+            view.setUint16(4, 10); 
+            view.setUint16(6, 1);  
+            view.setUint16(8, framesPerDir); 
+            
+            let currentOffset = 0;
+            let framePtr = 0;
+            for (let d = 0; d < 6; d++) {
+                if (d < dirs) {
+                    view.setUint32(34 + (d * 4), currentOffset);
+                    for (let f = 0; f < framesPerDir; f++) {
+                        const pf = processedFrames[framePtr++];
+                        currentOffset += 12 + (pf.w * pf.h);
+                    }
+                } else {
+                    view.setUint32(34 + (d * 4), 0); 
+                }
+            }
+            
+            view.setUint32(58, totalDataSize); 
+            
+            let ptr = 62;
+            for (let i = 0; i < processedFrames.length; i++) {
+                const pf = processedFrames[i];
+                view.setUint16(ptr, pf.w);       
+                view.setUint16(ptr + 2, pf.h);   
+                view.setUint32(ptr + 4, pf.w * pf.h); 
+                view.setInt16(ptr + 8, pf.ox);   
+                view.setInt16(ptr + 10, pf.oy);  
+                ptr += 12;
+                
+                u8.set(pf.data, ptr);
+                ptr += pf.w * pf.h;
+            }
+            
+            const blob = new Blob([buffer], { type: "application/octet-stream" });
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(blob);
+            a.download = 'model.frm';
+            a.click();
+            log(`FRM Binary Saved${doCrop ? ' (Trimmed Size)' : ''}.`);
+        });
+
+        updateGifDirOptions();
+        updateTransform();
+    </script>
+</body>
+</html>
